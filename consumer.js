@@ -1,36 +1,35 @@
-import { Kafka, logLevel } from "kafkajs";
+import { kafka, registry } from "./kafkaConfig.js";
 
 async function startConsumer() {
-  const kafka = new Kafka({
-    clientId: "my-consumer", // Biar log dan metrics lebih jelas
-    brokers: [process.env.KAFKA_BROKER || "localhost:9092"],
-    logLevel: logLevel.INFO,
-  });
-
   const consumer = kafka.consumer({
     groupId: process.env.KAFKA_GROUP_ID || "nodejs",
   });
+  const topic = process.env.KAFKA_TOPIC || "notification-topic";
 
   try {
-    console.log("🔌 Connecting to Kafka...");
+    console.log(`🔌 Connecting to Kafka broker: ${process.env.KAFKA_BROKER}`);
     await consumer.connect();
 
-    console.log("📡 Subscribing to topic: notification-topic");
-    await consumer.subscribe({
-      topic: "notification-topic",
-      fromBeginning: true,
-    });
+    console.log(`📡 Subscribing to topic: ${topic}`);
+    await consumer.subscribe({ topic, fromBeginning: false });
 
     console.log("✅ Consumer is now listening...");
     await consumer.run({
       eachMessage: async ({ topic, partition, message }) => {
-        console.log(
-          `📥 [${topic} | partition ${partition}] ${message.value?.toString()}`
-        );
+        try {
+          // Decode Avro message using Schema Registry
+          const decodedValue = await registry.decode(message.value);
+          console.log(
+            `📥 [${topic} | partition ${partition} | offset ${message.offset}]`,
+            decodedValue
+          );
+        } catch (err) {
+          console.error("❌ Failed to decode message:", err);
+        }
       },
     });
 
-    // Graceful shutdown
+    // ✅ Graceful shutdown
     const shutdown = async () => {
       console.log("\n🛑 Disconnecting Kafka consumer...");
       await consumer.disconnect();
